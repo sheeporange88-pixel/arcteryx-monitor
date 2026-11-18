@@ -13,12 +13,9 @@
    Name 为 `TELEGRAM_BOT_TOKEN`，Secret 填新 token。
    不要把 token 放在文件、Issue、聊天或日志里。
 4. 打开 **Actions → Arc'teryx Germany Telegram Monitor → Run workflow**，选择 main 运行。
-5. 确认 Telegram 收到首轮基准报告，再打开定时开关：
-   **Settings → Secrets and variables → Actions → Variables → New repository variable**，
-   Name 为 `MONITOR_ENABLED`，Value 为 `true`。
+5. 当前已按用户要求启用每10分钟的计划。首次部署先手动测试收件人和抓取结果。
 
-未设置 MONITOR_ENABLED=true 时，定时任务会跳过，不会自动发送；手动运行仍可测试。
-停止时将 MONITOR_ENABLED 改为 false，或在 Actions 中 Disable workflow。
+停止时在 Actions 页面选择主监控 workflow 的 Disable workflow；单次 Telegram Setup Test 没有定时任务。
 如果有多个用户给机器人发过消息，为避免发错人，自动配置会停止。
 这时在 Secrets 中另设 `TELEGRAM_CHAT_ID`，值为自己的明确接收会话 ID。
 
@@ -29,7 +26,11 @@
 - https://outlet.arcteryx.com/de/de/c/mens
 - 官网和 Outlet 首页明确出现的 Black Friday / Black Week / Cyber Monday 文字。
 
-每小时计划检查一次；GitHub 调度可能延迟，不承诺整点或严格间隔。
+每10分钟计划检查一次；GitHub 调度可能延迟，不承诺整点、严格间隔或活动公告前必定检出。
+所有已列出的商品逐次读取SKU详情页的每个颜色尺码价格；总览页价格不变也检查。
+报告保存详情价证据和总览价格范围，标记两者不一致；不把总览价格当作触发检查的条件。
+公开详情页中的JSON价格可核验；另一个动态变体价格接口当前返回401，未绕过授权，
+因此不声称能读到比公开详情页更早的未公开后台价格。
 每轮发中文报告，即使没有变化；报告包括覆盖数量、价格变化和失败情况。
 普通 Outlet 折扣不标成黑五专享；购物车优惠码、会员和结算价格未核验。
 首次只建立基准，不把现有产品当新品。分别保存完整来源基准，失败来源不覆盖旧基准。

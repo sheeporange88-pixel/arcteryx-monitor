@@ -3,7 +3,7 @@ name: Arc'teryx Germany Telegram Monitor
 on:
   workflow_dispatch:
   schedule:
-    - cron: '17 * * * *'
+    - cron: '*/10 * * * *'
 
 permissions:
   contents: read
@@ -14,8 +14,7 @@ concurrency:
 
 jobs:
   check-and-notify:
-    # Manual test works immediately. Scheduled jobs require this explicit switch.
-    if: github.event_name == 'workflow_dispatch' || vars.MONITOR_ENABLED == 'true'
+    # Enabled by the owner: inspect every SKU and send a report on every run.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:

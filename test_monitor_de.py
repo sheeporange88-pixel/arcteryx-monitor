@@ -114,6 +114,24 @@ class MonitorTests(unittest.TestCase):
                 m.telegram_call('getMe')
         mocked.assert_not_called()
 
+    def test_sku_discount_detected_while_listing_price_stays_unchanged(self):
+        tile = {'id': 'P', 'slug': 'jacket', 'colourOptions': [{'label': 'Red'}],
+                'priceRange': {'currency': 'EUR', 'regularPrice': 100,
+                               'minDiscountPrice': 100, 'maxDiscountPrice': 100}}
+        public_product = {'id': 'P', 'currencyCode': 'EUR', 'marketingName': 'Jacket',
+                          'colourOptions': [{'id': 'red', 'label': 'Red'}],
+                          'variants': [{'id': 'V', 'colourId': 'red', 'sizeId': 'M',
+                                        'price': 100, 'discountPrice': 70}]}
+        page = '<script id="__NEXT_DATA__">'+json.dumps({'props': {'pageProps': {'product': public_product}}})+'</script>'
+        with patch.object(m, 'request', return_value=page):
+            current = m.detail('https://arcteryx.com', tile)
+        self.assertEqual(current['variants']['V']['current_price'], 70)
+        self.assertTrue(current['listing_detail_price_disagreement'])
+        changes = m.compare({'products': {'P': product()}}, {'P': current}, 'now')
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0]['new']['current_price'], 70)
+        self.assertEqual(tile['priceRange']['minDiscountPrice'], 100)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -118,6 +118,7 @@ def detail(base, item):
         record = {'product_id': p['id'], 'name': p['marketingName'], 'url': url,
                   'color_id': color_id, 'color': colors[color_id], 'variant_id': v['id'],
                   'size_id': str(v.get('sizeId', '')), 'currency': 'EUR',
+                  'price_source': 'sku_detail_variant',
                   'list_price': regular, 'current_price': current,
                   'discount_percent': round((regular-current)/regular*100, 2),
                   'checked_at': now()}
@@ -128,8 +129,15 @@ def detail(base, item):
     listed = {c['label'] for c in item.get('colourOptions', [])}
     if listed and listed != set(colors.values()):
         raise ValueError('Listing and detail color options differ')
+    listed_range = item.get('priceRange')
+    detail_range = {'minDiscountPrice': min(v['current_price'] for v in variants.values()),
+                    'maxDiscountPrice': max(v['current_price'] for v in variants.values())}
+    listing_price_lag = bool(listed_range and any(
+        listed_range.get(k) != detail_range[k] for k in detail_range))
     return {'product_id': p['id'], 'name': p['marketingName'], 'url': url,
-            'colors': colors, 'variants': variants}
+            'colors': colors, 'variants': variants,
+            'listing_price_range': listed_range, 'detail_price_range': detail_range,
+            'listing_detail_price_disagreement': listing_price_lag}
 
 
 def compare(previous, current, stamp):
@@ -196,6 +204,7 @@ def promotions(base):
 def summary(report):
     local = datetime.fromisoformat(report['finished_at']).astimezone(ZoneInfo('Europe/Berlin'))
     lines = ['始祖鸟德国站：黑五折扣与上新', local.strftime('%Y-%m-%d %H:%M 柏林时间')]
+    lines.append('逐款读取SKU详情页的颜色/尺码价格；总览页价格不变也检查。')
     for key, source in report['sources'].items():
         label = {'main_mens': '官网男士', 'main_new': '官网新品', 'outlet_mens': 'Outlet男士'}[key]
         lines.append(f"{label}：{source['verified_products']}/{source.get('listed_products', '?')}款，"

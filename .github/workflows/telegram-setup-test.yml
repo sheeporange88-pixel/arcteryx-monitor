@@ -71,3 +71,5 @@ jobs:
           if [ -f data-de/latest-report.txt ]; then
             cat data-de/latest-report.txt >> "$GITHUB_STEP_SUMMARY"
           fi
+
+# Verify detail-page prices and the ten-minute schedule after setup.
