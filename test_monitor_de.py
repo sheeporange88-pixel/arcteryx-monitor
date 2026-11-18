@@ -99,6 +99,21 @@ class MonitorTests(unittest.TestCase):
                     m.telegram_configure(directory)
             self.assertFalse((directory/'telegram-recipient.json').exists())
 
+    def test_token_error_reports_status_without_leaking_secret(self):
+        token = '123456789' + ':' + 'x' * 35
+        with patch.dict(m.os.environ, {'TELEGRAM_BOT_TOKEN': token}), \
+             patch.object(m, 'request', side_effect=RuntimeError('HTTP 401')):
+            with self.assertRaisesRegex(RuntimeError, 'Telegram HTTP 401') as context:
+                m.telegram_call('getMe')
+        self.assertNotIn(token, str(context.exception))
+
+    def test_secret_must_not_be_botfather_message(self):
+        with patch.dict(m.os.environ, {'TELEGRAM_BOT_TOKEN': 'Use this token to access the HTTP API:'}), \
+             patch.object(m, 'request') as mocked:
+            with self.assertRaisesRegex(RuntimeError, 'invalid format'):
+                m.telegram_call('getMe')
+        mocked.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()

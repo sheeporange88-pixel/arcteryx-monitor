@@ -1,0 +1,73 @@
+name: Telegram Setup Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/telegram-setup-test.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arcteryx-germany-monitor
+  cancel-in-progress: false
+
+jobs:
+  check-and-notify:
+    # One-off setup test; no scheduled trigger.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify required secret
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+            echo 'Add TELEGRAM_BOT_TOKEN in Settings > Secrets and variables > Actions.'
+            exit 1
+          fi
+      - name: Run offline correctness tests
+        run: python -m unittest test_monitor_de.py
+      - name: Restore baseline and delivery receipts
+        uses: actions/cache/restore@v4
+        with:
+          path: data-de
+          key: arcteryx-de-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            arcteryx-de-v1-
+      - name: Verify Telegram bot and resolve recipient
+        run: python monitor_de.py --telegram-configure
+      - name: Check all German listings and send Chinese report
+        run: python monitor_de.py --notify
+      - name: Save baseline and pending notifications
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data-de
+          key: arcteryx-de-v1-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Attach product prices and run report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arcteryx-de-report-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 30
+          path: |
+            data-de/latest-report.txt
+            data-de/latest-run.json
+            data-de/latest-prices.csv
+      - name: Publish report in workflow summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f data-de/latest-report.txt ]; then
+            cat data-de/latest-report.txt >> "$GITHUB_STEP_SUMMARY"
+          fi

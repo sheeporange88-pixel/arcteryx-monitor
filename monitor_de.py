@@ -232,17 +232,32 @@ def summary(report):
 
 
 def telegram_call(method, payload=None):
-    token = os.environ.get('TELEGRAM_BOT_TOKEN')
+    token = os.environ.get('TELEGRAM_BOT_TOKEN', '').strip()
     if not token:
         raise RuntimeError('Missing TELEGRAM_BOT_TOKEN')
+    if not re.fullmatch(r'[0-9]+:[A-Za-z0-9_-]{20,}', token):
+        raise RuntimeError('TELEGRAM_BOT_TOKEN has invalid format: save only the token, without quotes, bot username, or BotFather message text.')
     try:
         response = json.loads(request('https://api.telegram.org/bot' + token + '/' + method,
                                       payload, retry=False))
-        if not response.get('ok'):
-            raise RuntimeError('Telegram API did not acknowledge request')
-        return response['result']
+    except RuntimeError as error:
+        message = str(error)
+        if re.fullmatch(r'HTTP [0-9]{3}', message):
+            guidance = {
+                'HTTP 401': 'Token is invalid or revoked. Update the TELEGRAM_BOT_TOKEN repository secret.',
+                'HTTP 404': 'Bot token or Telegram API route is not valid. Check the repository secret.',
+                'HTTP 409': 'Another bot process or webhook is using getUpdates.',
+                'HTTP 429': 'Telegram rate limited this request. Retry later.',
+            }.get(message, 'Telegram rejected the request; check method and recipient permissions.')
+            raise RuntimeError('Telegram ' + message + ' during ' + method + '. ' + guidance) from None
+        raise RuntimeError('Telegram connection or timeout error during ' + method + '; token and URL suppressed.') from None
     except Exception:
-        raise RuntimeError('Telegram request failed; token and full request URL suppressed') from None
+        raise RuntimeError('Telegram response could not be parsed; token and URL suppressed.') from None
+    if not response.get('ok'):
+        code = response.get('error_code', 'unknown')
+        safe_code = str(code) if isinstance(code, int) else 'unknown'
+        raise RuntimeError('Telegram API error ' + safe_code + ' during ' + method + '; no token or response text logged.')
+    return response['result']
 
 
 def telegram_check(data_dir):
