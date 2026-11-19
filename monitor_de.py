@@ -361,11 +361,12 @@ def send_pending(data_dir, min_interval=0):
     outbox = data_dir / 'outbox'
     files = sorted(outbox.glob('*.json')) if outbox.exists() else []
     if not files:
-        return
+        return 0
     chat_id = recipient(data_dir)
     if not os.environ.get('TELEGRAM_BOT_TOKEN') or not chat_id:
         raise RuntimeError('Telegram credentials not configured; reports remain in outbox')
     last_sent = None
+    accepted_messages = 0
     for file in files:
         record = json.loads(file.read_text())
         if record['status'] == 'sent':
@@ -376,12 +377,14 @@ def send_pending(data_dir, min_interval=0):
                 time.sleep(max(0, min_interval - (time.monotonic() - last_sent)))
             result = telegram_call('sendMessage', {'chat_id': chat_id,
                                    'text': record['chunks'][index], 'disable_web_page_preview': True})
+            accepted_messages += 1
             record.setdefault('message_ids', []).append(result['message_id'])
             record['sent_chunks'] = index + 1
             atomic(file, record)
             last_sent = time.monotonic()
         record.update(status='sent', api_accepted_at=now(), device_delivery_confirmed=False)
         atomic(file, record)
+    return accepted_messages
 
 
 def chunks(text, limit=3500):
@@ -500,6 +503,7 @@ def run(data_dir, source_names):
         atomic(data_dir / 'outbox' / (stamp + '.json'), {'status': 'pending', 'chunks': chunks(text),
                                                        'sent_chunks': 0, 'created_at': now(), 'reason': reason})
     atomic(notice_path, notices)
+    print(json.dumps({'request_health': report['request_health']}, ensure_ascii=False), flush=True)
     print(json.dumps({'telegram_queued_reports': report['queued_messages'], 'notification_reason': reason}), flush=True)
     print(text, flush=True)
     return report
@@ -514,6 +518,7 @@ def main():
     parser.add_argument('--telegram-discover', action='store_true', help='Read-only recipient discovery after /start')
     parser.add_argument('--telegram-configure', action='store_true', help='Verify bot and save one private recipient after /start')
     parser.add_argument('--send-pending', action='store_true', help='Only send previously queued reports')
+    parser.add_argument('--send-interval', type=float, default=0, help='Minimum seconds between queued messages')
     args = parser.parse_args()
     if not monitoring_hours.is_active():
         print('Berlin 00:00–07:00: monitor paused; no fetching or Telegram sends.')
@@ -531,7 +536,11 @@ def main():
     if not args.send_pending:
         run(args.data_dir, args.sources)
     if args.notify or args.send_pending:
-        send_pending(args.data_dir)
+        accepted = send_pending(args.data_dir, min_interval=max(0, args.send_interval))
+        pending = sum(json.loads(file.read_text()).get('status') != 'sent'
+                      for file in (args.data_dir/'outbox').glob('*.json'))
+        print(json.dumps({'telegram_api_accepted_messages': accepted, 'telegram_pending_messages': pending,
+                          'device_delivery_confirmed': False}), flush=True)
 
 
 if __name__ == '__main__':

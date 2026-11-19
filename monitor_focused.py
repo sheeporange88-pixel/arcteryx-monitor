@@ -165,6 +165,7 @@ def run(data_dir, configs, fetch=common.detail):
         print(message + '\n', flush=True)
     report['finished_at'] = common.now()
     report['request_health'] = common.PUBLIC_REQUESTS.snapshot()
+    print(json.dumps({'request_health': report['request_health']}, ensure_ascii=False), flush=True)
     common.atomic(health_path, common.PUBLIC_REQUESTS.cooldowns)
     report['verified_skus'] = sum(row['error'] is None for row in report['results'])
     report['colors'] = sum(len(row['product']['colors']) for row in report['results'] if row['product'])
@@ -197,15 +198,15 @@ def main():
     report = run(args.data_dir, configs)
     if args.notify:
         common.send_pending(args.data_dir, min_interval=1.1)
-        pending = []
-        for file in (args.data_dir/'outbox').glob('*.json'):
-            item = json.loads(file.read_text())
-            if item.get('status') != 'sent':
-                pending.append(file.name)
-        print(json.dumps({'focused_skus': len(configs), 'verified_skus': report['verified_skus'],
-                          'telegram_queued_messages': report['queued_messages'],
-                          'telegram_pending_messages': len(pending),
-                          'device_delivery_confirmed': False}), flush=True)
+    pending = []
+    for file in (args.data_dir/'outbox').glob('*.json'):
+        item = json.loads(file.read_text())
+        if item.get('status') != 'sent':
+            pending.append(file.name)
+    print(json.dumps({'focused_skus': len(configs), 'verified_skus': report['verified_skus'],
+                      'telegram_queued_messages': report['queued_messages'],
+                      'telegram_pending_messages': len(pending),
+                      'device_delivery_confirmed': False}), flush=True)
 
 
 if __name__ == '__main__':

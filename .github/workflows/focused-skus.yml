@@ -37,9 +37,6 @@ jobs:
     if: needs.active_hours.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -74,10 +71,18 @@ jobs:
               target.parent.mkdir(parents=True, exist_ok=True)
               shutil.copyfile(source, target)
           PY
+      - name: Read seven public SKU prices without Telegram credentials
+        run: python monitor_focused.py
       - name: Verify Telegram recipient
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python monitor_de.py --data-dir data-focused --telegram-configure
-      - name: Read seven SKU prices; notify changes or hourly unchanged results
-        run: python monitor_focused.py --notify
+      - name: Send only queued SKU notifications
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python monitor_de.py --data-dir data-focused --send-pending --send-interval 1.1
       - name: Save focused baselines and delivery receipts
         if: always()
         uses: actions/cache/save@v4

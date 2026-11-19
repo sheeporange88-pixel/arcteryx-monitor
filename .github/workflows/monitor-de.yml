@@ -36,15 +36,15 @@ jobs:
     # Inspect every SKU each run; notify on changes or the hourly :55 check.
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Verify required secret
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
             echo 'Add TELEGRAM_BOT_TOKEN in Settings > Secrets and variables > Actions.'
@@ -59,10 +59,18 @@ jobs:
           key: arcteryx-de-v1-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             arcteryx-de-v1-
+      - name: Read German public listings without Telegram credentials
+        run: python monitor_de.py
       - name: Verify Telegram bot and resolve recipient
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python monitor_de.py --telegram-configure
-      - name: Check German listings; notify changes or hourly unchanged results
-        run: python monitor_de.py --notify
+      - name: Send only queued catalog notifications
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python monitor_de.py --send-pending
       - name: Save baseline and pending notifications
         if: always()
         uses: actions/cache/save@v4
