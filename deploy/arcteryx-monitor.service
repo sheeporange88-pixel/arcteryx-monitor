@@ -1,0 +1,20 @@
+[Unit]
+Description=Arc'teryx Germany price monitor
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=arcteryx-monitor
+Group=arcteryx-monitor
+WorkingDirectory=/opt/arcteryx-monitor
+EnvironmentFile=/etc/arcteryx-monitor.env
+StateDirectory=arcteryx-monitor
+StateDirectoryMode=0700
+ExecStart=/usr/bin/python3 /opt/arcteryx-monitor/server_runner.py --data-root /var/lib/arcteryx-monitor
+TimeoutStartSec=20min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+

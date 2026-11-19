@@ -1,0 +1,12 @@
+[Unit]
+Description=Check Arc'teryx at Berlin :05/:15/:25/:35/:45/:55
+
+[Timer]
+OnCalendar=*-*-* 07..23:05,15,25,35,45,55:00 Europe/Berlin
+AccuracySec=1s
+RandomizedDelaySec=0
+Persistent=false
+Unit=arcteryx-monitor.service
+
+[Install]
+WantedBy=timers.target
