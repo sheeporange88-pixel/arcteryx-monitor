@@ -2,12 +2,14 @@ name: Seven SKU Prices - Separate Telegram Messages
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '7-57/10 5-22 * * *'
   push:
     branches: [main]
     paths:
       - '.github/workflows/focused-skus.yml'
+      - 'monitor_focused.py'
+      - 'focused_skus.json'
+      - 'monitor_de.py'
+      - 'monitoring_hours.py'
 
 permissions:
   contents: read
@@ -82,7 +84,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: focused-sku-prices-${{ github.run_id }}
+          name: focused-sku-prices-${{ github.run_id }}-${{ github.run_attempt }}
           retention-days: 30
           if-no-files-found: ignore
           path: |

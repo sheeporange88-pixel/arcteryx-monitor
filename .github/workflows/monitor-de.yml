@@ -6,8 +6,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/monitor-de.yml'
-  schedule:
-    - cron: '3-53/10 5-22 * * *'
+      - 'monitor_de.py'
+      - 'monitoring_hours.py'
 
 permissions:
   contents: read
@@ -69,7 +69,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: arcteryx-de-report-${{ github.run_id }}
+          name: arcteryx-de-report-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: ignore
           retention-days: 30
           path: |
