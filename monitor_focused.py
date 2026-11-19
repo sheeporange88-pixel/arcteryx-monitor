@@ -111,6 +111,8 @@ def run(data_dir, configs, fetch=common.detail):
             config = futures[future]
             try:
                 fetched[config['id']] = (future.result(), None)
+            except common.monitoring_hours.QuietHours:
+                raise
             except Exception as error:
                 fetched[config['id']] = (None, str(error)[:200])
     batch = datetime.fromisoformat(stamp).strftime('%Y%m%dT%H%M%S%fZ')
@@ -160,6 +162,9 @@ def main():
     parser.add_argument('--data-dir', type=Path, default=ROOT/'data-focused')
     parser.add_argument('--notify', action='store_true')
     args = parser.parse_args()
+    if not common.monitoring_hours.is_active():
+        print('Berlin 00:00–07:00: focused SKU monitor paused; no fetching or Telegram sends.')
+        return
     configs = json.loads((ROOT/'focused_skus.json').read_text())
     report = run(args.data_dir, configs)
     if args.notify:
@@ -175,4 +180,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except common.monitoring_hours.QuietHours as error:
+        print(str(error))

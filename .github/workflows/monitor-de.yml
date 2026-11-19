@@ -3,7 +3,7 @@ name: Arc'teryx Germany Telegram Monitor
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/10 5-22 * * *'
 
 permissions:
   contents: read
@@ -13,7 +13,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  active_hours:
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.clock.outputs.allowed }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check actual Berlin local time
+        id: clock
+        run: python3 monitoring_hours.py
   check-and-notify:
+    needs: active_hours
+    if: needs.active_hours.outputs.allowed == 'true'
     # Enabled by the owner: inspect every SKU and send a report on every run.
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -32,7 +43,7 @@ jobs:
             exit 1
           fi
       - name: Run offline correctness tests
-        run: python -m unittest test_monitor_de.py
+        run: python -m unittest test_monitor_de.py test_monitoring_hours.py
       - name: Restore baseline and delivery receipts
         uses: actions/cache/restore@v4
         with:

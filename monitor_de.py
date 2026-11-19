@@ -21,6 +21,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from zoneinfo import ZoneInfo
+import monitoring_hours
 
 ROOT = Path(__file__).resolve().parent
 SOURCES = {
@@ -46,6 +47,8 @@ def request(url, body=None, retry=True):
     req = urllib.request.Request(url, data=data,
                                  headers={'Content-Type': 'application/json'} if data else {})
     for attempt in range(2 if retry else 1):
+        if urllib.parse.urlsplit(url).hostname in ('arcteryx.com', 'outlet.arcteryx.com', 'api.telegram.org'):
+            monitoring_hours.ensure_active()
         try:
             with urllib.request.urlopen(req, timeout=25) as response:
                 return response.read().decode('utf-8')
@@ -251,6 +254,8 @@ def telegram_call(method, payload=None):
     try:
         response = json.loads(request('https://api.telegram.org/bot' + token + '/' + method,
                                       payload, retry=False))
+    except monitoring_hours.QuietHours:
+        raise
     except RuntimeError as error:
         message = str(error)
         if re.fullmatch(r'HTTP [0-9]{3}', message):
@@ -387,6 +392,8 @@ def run(data_dir, source_names):
                     pid = futures[future]
                     try:
                         current[pid] = future.result()
+                    except monitoring_hours.QuietHours:
+                        raise
                     except Exception as error:
                         source['errors'].append({'product_id': pid, 'error': str(error)[:200]})
                     if index % 60 == 0 or index == len(futures):
@@ -400,6 +407,8 @@ def run(data_dir, source_names):
             if source['complete']:
                 source['baseline_established'] = previous is None
                 state['sources'][name] = {'products': current, 'checked_at': started}
+        except monitoring_hours.QuietHours:
+            raise
         except Exception as error:
             source['errors'].append({'error': str(error)[:200]})
         source['verified_products'] = len(current)
@@ -420,6 +429,8 @@ def run(data_dir, source_names):
                                           'new_mentions': promo['mentions'], 'detected_at': now()})
             state['promotions'][name] = promo
             report['promotions'][name] = promo
+        except monitoring_hours.QuietHours:
+            raise
         except Exception as error:
             report['promotions'][name] = {'error': str(error)[:200]}
     report['finished_at'] = now()
@@ -455,6 +466,9 @@ def main():
     parser.add_argument('--telegram-configure', action='store_true', help='Verify bot and save one private recipient after /start')
     parser.add_argument('--send-pending', action='store_true', help='Only send previously queued reports')
     args = parser.parse_args()
+    if not monitoring_hours.is_active():
+        print('Berlin 00:00–07:00: monitor paused; no fetching or Telegram sends.')
+        return
     args.data_dir.mkdir(parents=True, exist_ok=True)
     if args.telegram_configure:
         telegram_configure(args.data_dir)
@@ -472,4 +486,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except monitoring_hours.QuietHours as error:
+        print(str(error))
