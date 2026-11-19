@@ -7,6 +7,7 @@ import urllib.request
 
 import monitoring_hours
 import public_requests
+import monitor_de
 
 
 def main():
@@ -22,9 +23,7 @@ def main():
              urllib.parse.urlencode({'input': json.dumps(args, separators=(',', ':'))}))]
     formats = [('python_default', {}),
                ('identified_monitor', {'User-Agent': public_requests.USER_AGENT}),
-               ('html_compatible', {'User-Agent': 'Mozilla/5.0',
-                                    'Accept': 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
-                                    'Accept-Language': 'de-DE,de;q=0.9'})]
+               ('production_request', None)]
     results = []
     for label, headers in formats:
         for kind, url in urls:
@@ -32,6 +31,22 @@ def main():
             record = {'format': label, 'kind': kind}
             stop = False
             try:
+                if headers is None:
+                    body = monitor_de.request(url)
+                    if kind == 'detail':
+                        import re
+                        match = re.search(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>', body, re.S)
+                        p = json.loads(match.group(1))['props']['pageProps']['product'] if match else {}
+                        p = json.loads(p) if isinstance(p, str) else p
+                        record.update(status=200, product_id=p.get('id'), currency=p.get('currencyCode'),
+                                      variants=len(p.get('variants', [])))
+                    else:
+                        data = json.loads(body)['result']['data']['json']
+                        record.update(status=200, listed_products=len(data['productList']))
+                    results.append(record)
+                    print(json.dumps(record, ensure_ascii=False), flush=True)
+                    time.sleep(2)
+                    continue
                 with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as response:
                     body = response.read(4096).decode('utf-8', 'replace')
                     record.update(status=response.status, content_type=response.headers.get('Content-Type'),
@@ -46,6 +61,8 @@ def main():
                         any(word in record['response_indicators'] for word in ('captcha', 'access denied')))
             except Exception as error:
                 record['error'] = type(error).__name__
+                if headers is None:
+                    record['request_health'] = monitor_de.PUBLIC_REQUESTS.snapshot()
             results.append(record)
             print(json.dumps(record, ensure_ascii=False), flush=True)
             if stop:
