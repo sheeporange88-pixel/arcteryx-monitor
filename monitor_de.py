@@ -23,6 +23,9 @@ import urllib.request
 from zoneinfo import ZoneInfo
 import monitoring_hours
 import notification_policy as notifications
+import public_requests
+
+PUBLIC_REQUESTS = public_requests.PublicRequests()
 
 ROOT = Path(__file__).resolve().parent
 SOURCES = {
@@ -45,18 +48,28 @@ def atomic(path, value):
 
 def request(url, body=None, retry=True):
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data,
-                                 headers={'Content-Type': 'application/json'} if data else {})
+    host = urllib.parse.urlsplit(url).hostname
+    headers = {'Content-Type': 'application/json'} if data else {}
+    if host in public_requests.HOSTS:
+        headers.update({'User-Agent': public_requests.USER_AGENT,
+                        'Accept': 'application/json' if '/api/' in urllib.parse.urlsplit(url).path
+                                  else 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'de-DE,de;q=0.9,en;q=0.5'})
+    req = urllib.request.Request(url, data=data, headers=headers)
     for attempt in range(2 if retry else 1):
         if urllib.parse.urlsplit(url).hostname in ('arcteryx.com', 'outlet.arcteryx.com', 'api.telegram.org'):
+            monitoring_hours.ensure_active()
+        PUBLIC_REQUESTS.before(url)
+        if host in public_requests.HOSTS:
             monitoring_hours.ensure_active()
         try:
             with urllib.request.urlopen(req, timeout=25) as response:
                 return response.read().decode('utf-8')
         except urllib.error.HTTPError as error:
+            message = PUBLIC_REQUESTS.failure(url, error)
             # Do not retry 429; honour server rate limits by ending this request.
             if not retry or error.code not in (500, 502, 503, 504) or attempt:
-                raise RuntimeError('HTTP ' + str(error.code)) from None
+                raise RuntimeError(message) from None
         except (urllib.error.URLError, TimeoutError):
             if not retry or attempt:
                 raise RuntimeError('Network connection or timeout error') from None
@@ -213,9 +226,12 @@ def summary(report):
     lines.append('逐款读取SKU详情页的颜色/尺码价格；总览页价格不变也检查。')
     for key, source in report['sources'].items():
         label = {'main_mens': '官网男士', 'main_new': '官网新品', 'outlet_mens': 'Outlet男士'}[key]
-        lines.append(f"{label}：{source['verified_products']}/{source.get('listed_products', '?')}款，"
-                     f"{source['colors']}颜色，{source['variants']}尺码颜色组合；"
-                     f"{'完整' if source['complete'] else '覆盖不全'}；折扣颜色{source['discounted_colors']}个")
+        if not source['verified_products']:
+            lines.append(f"{label}：已核验0/{source.get('listed_products', '?')}款；本轮价格与折扣无法确认。")
+        else:
+            lines.append(f"{label}：{source['verified_products']}/{source.get('listed_products', '?')}款，"
+                         f"{source['colors']}颜色，{source['variants']}尺码颜色组合；"
+                         f"{'完整' if source['complete'] else '覆盖不全'}；已核验部分折扣颜色{source['discounted_colors']}个")
         if source['baseline_established']:
             lines.append('首次完整基准已建立；现有商品与折扣不视为新变化。')
         for error in source['errors'][:3]:
@@ -240,7 +256,15 @@ def summary(report):
             if event.get('url'):
                 lines.append(event['url'])
     promo = [phrase for p in report['promotions'].values() if not p.get('error') for phrase in p['mentions']]
-    lines.append('官网黑五文字：' + (' / '.join(promo) if promo else '本轮首页未检出明确黑五活动文字；不代表全站没有活动。'))
+    promo_errors = [name for name, p in report['promotions'].items() if p.get('error')]
+    lines.append('官网黑五文字：' + (' / '.join(promo) if promo else
+                 '首页读取失败，无法确认活动文字。' if promo_errors else
+                 '本轮首页未检出明确黑五活动文字；不代表全站没有活动。'))
+    if promo and promo_errors:
+        lines.append('部分首页读取失败，活动文字覆盖不全。')
+    paused = report.get('request_health', {}).get('paused_hosts', {})
+    if paused:
+        lines.append('服务器拒绝访问，已暂停本轮后续请求：' + '、'.join(paused) + '；不会连续重试。')
     if not report['complete']:
         lines.append('不完整来源未覆盖其原有完整基准，未把失败商品当作下架。')
     return '\n'.join(lines)
@@ -373,6 +397,11 @@ def chunks(text, limit=3500):
 
 
 def run(data_dir, source_names):
+    global PUBLIC_REQUESTS
+    PUBLIC_REQUESTS = public_requests.PublicRequests()
+    health_path = data_dir / 'request-cooldowns.json'
+    if health_path.exists():
+        PUBLIC_REQUESTS.restore(json.loads(health_path.read_text()))
     started = now()
     notice_path = data_dir / 'notification-state.json'
     notices = json.loads(notice_path.read_text()) if notice_path.exists() else {}
@@ -391,7 +420,7 @@ def run(data_dir, source_names):
             items, pages = collect(base, slug)
             source.update(listed_products=len(items), pages=pages)
             print(f'{name}: {len(items)} listing products', flush=True)
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
                 futures = {executor.submit(detail, base, item): pid for pid, item in items.items()}
                 for index, future in enumerate(concurrent.futures.as_completed(futures), 1):
                     pid = futures[future]
@@ -439,6 +468,8 @@ def run(data_dir, source_names):
         except Exception as error:
             report['promotions'][name] = {'error': str(error)[:200]}
     report['finished_at'] = now()
+    report['request_health'] = PUBLIC_REQUESTS.snapshot()
+    atomic(health_path, PUBLIC_REQUESTS.cooldowns)
     event_ids = {notifications.fingerprint(e) for e in report['changes']}
     previous_ids = set(notices.get('event_ids', [notifications.fingerprint(e) for e in
                                                (prior or {}).get('changes', [])]))

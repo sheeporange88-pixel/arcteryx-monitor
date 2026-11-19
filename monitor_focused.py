@@ -108,6 +108,10 @@ def price_message(config, product, previous, stamp, error=None):
 
 def run(data_dir, configs, fetch=common.detail):
     data_dir.mkdir(parents=True, exist_ok=True)
+    common.PUBLIC_REQUESTS = common.public_requests.PublicRequests()
+    health_path = data_dir / 'request-cooldowns.json'
+    if health_path.exists():
+        common.PUBLIC_REQUESTS.restore(json.loads(health_path.read_text()))
     stamp = common.now()
     state_path = data_dir / 'focused-state.json'
     state = json.loads(state_path.read_text()) if state_path.exists() else {'products': {}}
@@ -160,6 +164,8 @@ def run(data_dir, configs, fetch=common.detail):
         report['results'].append(row)
         print(message + '\n', flush=True)
     report['finished_at'] = common.now()
+    report['request_health'] = common.PUBLIC_REQUESTS.snapshot()
+    common.atomic(health_path, common.PUBLIC_REQUESTS.cooldowns)
     report['verified_skus'] = sum(row['error'] is None for row in report['results'])
     report['colors'] = sum(len(row['product']['colors']) for row in report['results'] if row['product'])
     report['variants'] = sum(len(row['product']['variants']) for row in report['results'] if row['product'])

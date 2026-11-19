@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta
 import hashlib
 import json
+import re
 from zoneinfo import ZoneInfo
 
 
@@ -50,8 +51,15 @@ def price_changed(previous, current):
 
 
 def report_errors(report):
+    def source_errors(source):
+        errors = []
+        for error in source.get('errors', []):
+            text = error.get('error', '')
+            http = re.search(r'HTTP (403|406|429)\b', text)
+            errors.append({'error': 'HTTP ' + http.group(1)} if http else error)
+        return sorted({json.dumps(e, sort_keys=True) for e in errors})
     return fingerprint({
-        'sources': {name: sorted(source.get('errors', []), key=lambda e: json.dumps(e, sort_keys=True))
+        'sources': {name: source_errors(source)
                     for name, source in report.get('sources', {}).items()},
         'promotions': {name: p.get('error') for name, p in report.get('promotions', {}).items()},
     })

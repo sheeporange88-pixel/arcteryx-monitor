@@ -123,3 +123,13 @@ GitHub原生schedule未持续产生运行记录，错峰重登记后仍无自动
 ```bash
 python -m unittest test_monitor_de.py test_monitor_focused.py test_monitoring_hours.py test_notification_policy.py
 ```
+
+## 访问拒绝处理（2026-11-19）
+
+全站抓取仅并发2个详情页，同一站点的请求启动间隔至少0.5秒，并使用明确的监控程序标识与页面/JSON接受类型。
+出现HTTP 403、406或429时，不反复重试；暂停本轮对该站的后续请求，另一站点和Telegram仍可处理。
+Retry-After要求的等待期限随各自监控缓存保存，下一轮继续遵守。下一轮没有冷却限制时可再尝试读取。
+JSON报告的request_health保存响应状态、公开页面路径和Content-Type/Server/Retry-After这三个响应标头及少量拒绝类型标记，
+不会保存完整拒绝页面、Cookie或Telegram密钥。请求失败仍保留完整基准，不把无数据解释为没有折扣。
+零商品核验时中文报告明确写“价格与折扣无法确认”；首页读取失败时也不会声称没有检出黑五文字。
+这些调整用于减少请求压力和诊断失败，不能保证网站始终允许自动访问。

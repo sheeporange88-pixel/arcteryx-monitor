@@ -9,6 +9,8 @@ on:
       - 'monitor_de.py'
       - 'monitoring_hours.py'
       - 'notification_policy.py'
+      - 'public_requests.py'
+      - 'test_public_requests.py'
       - 'test_notification_policy.py'
 
 permissions:
@@ -49,7 +51,7 @@ jobs:
             exit 1
           fi
       - name: Run offline correctness tests
-        run: python -m unittest test_monitor_de.py test_monitoring_hours.py test_notification_policy.py
+        run: python -m unittest test_monitor_de.py test_monitoring_hours.py test_notification_policy.py test_public_requests.py
       - name: Restore baseline and delivery receipts
         uses: actions/cache/restore@v4
         with:
