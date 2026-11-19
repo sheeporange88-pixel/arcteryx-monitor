@@ -8,6 +8,8 @@ on:
       - '.github/workflows/monitor-de.yml'
       - 'monitor_de.py'
       - 'monitoring_hours.py'
+      - 'notification_policy.py'
+      - 'test_notification_policy.py'
 
 permissions:
   contents: read
@@ -29,7 +31,7 @@ jobs:
   check-and-notify:
     needs: active_hours
     if: needs.active_hours.outputs.allowed == 'true'
-    # Enabled by the owner: inspect every SKU and send a report on every run.
+    # Inspect every SKU each run; notify on changes or the hourly :55 check.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -47,7 +49,7 @@ jobs:
             exit 1
           fi
       - name: Run offline correctness tests
-        run: python -m unittest test_monitor_de.py test_monitoring_hours.py
+        run: python -m unittest test_monitor_de.py test_monitoring_hours.py test_notification_policy.py
       - name: Restore baseline and delivery receipts
         uses: actions/cache/restore@v4
         with:
@@ -57,7 +59,7 @@ jobs:
             arcteryx-de-v1-
       - name: Verify Telegram bot and resolve recipient
         run: python monitor_de.py --telegram-configure
-      - name: Check all German listings and send Chinese report
+      - name: Check German listings; notify changes or hourly unchanged results
         run: python monitor_de.py --notify
       - name: Save baseline and pending notifications
         if: always()

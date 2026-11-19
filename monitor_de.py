@@ -22,6 +22,7 @@ import urllib.parse
 import urllib.request
 from zoneinfo import ZoneInfo
 import monitoring_hours
+import notification_policy as notifications
 
 ROOT = Path(__file__).resolve().parent
 SOURCES = {
@@ -373,6 +374,10 @@ def chunks(text, limit=3500):
 
 def run(data_dir, source_names):
     started = now()
+    notice_path = data_dir / 'notification-state.json'
+    notices = json.loads(notice_path.read_text()) if notice_path.exists() else {}
+    prior_path = data_dir / 'latest-run.json'
+    prior = json.loads(prior_path.read_text()) if prior_path.exists() else None
     state_path = data_dir / 'state.json'
     state = json.loads(state_path.read_text()) if state_path.exists() else {'sources': {}, 'promotions': {}}
     report = {'started_at': started, 'sources': {}, 'changes': [], 'promotions': {}, 'complete': True}
@@ -434,6 +439,16 @@ def run(data_dir, source_names):
         except Exception as error:
             report['promotions'][name] = {'error': str(error)[:200]}
     report['finished_at'] = now()
+    event_ids = {notifications.fingerprint(e) for e in report['changes']}
+    previous_ids = set(notices.get('event_ids', [notifications.fingerprint(e) for e in
+                                               (prior or {}).get('changes', [])]))
+    reason = notifications.decide(
+        notices, 'catalog', started, changed=bool(event_ids - previous_ids),
+        initial=any(s['baseline_established'] for s in report['sources'].values()),
+        status_changed=prior is not None and notifications.report_errors(prior) != notifications.report_errors(report))
+    notices['event_ids'] = sorted(event_ids)
+    report['notification_reason'] = reason
+    report['queued_messages'] = int(reason is not None)
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     atomic(data_dir / 'runs' / (stamp + '.json'), report)
     atomic(data_dir / 'latest-run.json', report)
@@ -450,8 +465,11 @@ def run(data_dir, source_names):
                 for variant in product['variants'].values():
                     writer.writerow({'source': name, **{k: variant.get(k) for k in fields if k != 'source'}})
     # No notifications are sent until --notify is explicitly supplied.
-    atomic(data_dir / 'outbox' / (stamp + '.json'), {'status': 'pending', 'chunks': chunks(text),
-                                                   'sent_chunks': 0, 'created_at': now()})
+    if reason:
+        atomic(data_dir / 'outbox' / (stamp + '.json'), {'status': 'pending', 'chunks': chunks(text),
+                                                       'sent_chunks': 0, 'created_at': now(), 'reason': reason})
+    atomic(notice_path, notices)
+    print(json.dumps({'telegram_queued_reports': report['queued_messages'], 'notification_reason': reason}), flush=True)
     print(text, flush=True)
     return report
 

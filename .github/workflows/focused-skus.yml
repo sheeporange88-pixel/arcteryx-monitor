@@ -10,6 +10,8 @@ on:
       - 'focused_skus.json'
       - 'monitor_de.py'
       - 'monitoring_hours.py'
+      - 'notification_policy.py'
+      - 'test_notification_policy.py'
 
 permissions:
   contents: read
@@ -42,7 +44,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Test price comparison and message separation
-        run: python -m unittest test_monitor_de.py test_monitor_focused.py test_monitoring_hours.py
+        run: python -m unittest test_monitor_de.py test_monitor_focused.py test_monitoring_hours.py test_notification_policy.py
       - name: Restore focused SKU state and receipts
         id: focused-cache
         uses: actions/cache/restore@v4
@@ -72,7 +74,7 @@ jobs:
           PY
       - name: Verify Telegram recipient
         run: python monitor_de.py --data-dir data-focused --telegram-configure
-      - name: Read seven SKU detail prices and send seven separate messages
+      - name: Read seven SKU prices; notify changes or hourly unchanged results
         run: python monitor_focused.py --notify
       - name: Save focused baselines and delivery receipts
         if: always()

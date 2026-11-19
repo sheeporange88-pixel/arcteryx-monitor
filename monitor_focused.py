@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seven independent SKU price watches; exactly one queued Telegram message per SKU."""
+"""Seven independent SKU watches; changes now, unchanged prices on the :55 check."""
 import argparse
 from collections import defaultdict
 import concurrent.futures
@@ -11,6 +11,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import monitor_de as common
+import notification_policy as notifications
 
 ROOT = Path(__file__).resolve().parent
 BASE = 'https://arcteryx.com'
@@ -63,6 +64,13 @@ def price_message(config, product, previous, stamp, error=None):
         if changes:
             lines.append('价格变化（较上次）：')
             lines.extend(changes)
+        elif notifications.price_changed(previous, product):
+            old_records = list(previous['variants'].values())
+            lines.append('价格范围变化（颜色/尺码组合调整）：原价 ' +
+                         price_range(v['list_price'] for v in old_records) + ' → ' +
+                         price_range(v['list_price'] for v in records) + '；现价 ' +
+                         price_range(v['current_price'] for v in old_records) + ' → ' +
+                         price_range(v['current_price'] for v in records))
         else:
             lines.append('价格变化：较上次无变化。')
         if unmatched:
@@ -103,7 +111,12 @@ def run(data_dir, configs, fetch=common.detail):
     stamp = common.now()
     state_path = data_dir / 'focused-state.json'
     state = json.loads(state_path.read_text()) if state_path.exists() else {'products': {}}
-    report = {'started_at': stamp, 'complete': True, 'messages': [], 'results': []}
+    notice_path = data_dir / 'notification-state.json'
+    notices = json.loads(notice_path.read_text()) if notice_path.exists() else {}
+    prior_path = data_dir / 'latest-focused-run.json'
+    prior = json.loads(prior_path.read_text()) if prior_path.exists() else {}
+    prior_errors = {r['config']['id']: r['error'] for r in prior.get('results', [])}
+    report = {'started_at': stamp, 'complete': True, 'messages': [], 'results': [], 'queued_messages': 0}
     fetched = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(fetch, BASE, config): config for config in configs}
@@ -122,6 +135,12 @@ def run(data_dir, configs, fetch=common.detail):
         checked_at = common.now()
         message = price_message(config, product, previous, checked_at, error)
         row = {'config': config, 'checked_at': checked_at, 'error': error, 'product': product}
+        changed = notifications.price_changed(previous, product)
+        status_changed = (config['id'] in prior_errors and prior_errors[config['id']] != error)
+        reason = notifications.decide(notices, config['id'], stamp, changed=changed,
+                                      initial=(previous is None and (product is not None or config['id'] not in prior_errors)),
+                                      status_changed=status_changed)
+        row.update(price_changed=changed, notification_reason=reason)
         if product:
             product['checked_at'] = checked_at
             product['first_observed_at'] = previous.get('first_observed_at', stamp) if previous else stamp
@@ -132,9 +151,11 @@ def run(data_dir, configs, fetch=common.detail):
         else:
             report['complete'] = False
         # The outbox entry intentionally contains exactly one SKU and one message.
-        common.atomic(data_dir/'outbox'/(batch+'-'+config['id']+'.json'),
-                      {'status': 'pending', 'chunks': [message], 'sent_chunks': 0,
-                       'sku': config['id'], 'created_at': checked_at})
+        if reason:
+            common.atomic(data_dir/'outbox'/(batch+'-'+config['id']+'.json'),
+                          {'status': 'pending', 'chunks': [message], 'sent_chunks': 0,
+                           'sku': config['id'], 'created_at': checked_at, 'reason': reason})
+            report['queued_messages'] += 1
         report['messages'].append(message)
         report['results'].append(row)
         print(message + '\n', flush=True)
@@ -143,6 +164,7 @@ def run(data_dir, configs, fetch=common.detail):
     report['colors'] = sum(len(row['product']['colors']) for row in report['results'] if row['product'])
     report['variants'] = sum(len(row['product']['variants']) for row in report['results'] if row['product'])
     common.atomic(data_dir/'focused-state.json', state)
+    common.atomic(notice_path, notices)
     common.atomic(data_dir/'latest-focused-run.json', report)
     common.atomic(data_dir/'runs'/(batch+'.json'), report)
     (data_dir/'latest-focused-report.txt').write_text('\n\n'.join(report['messages']))
@@ -175,6 +197,7 @@ def main():
             if item.get('status') != 'sent':
                 pending.append(file.name)
         print(json.dumps({'focused_skus': len(configs), 'verified_skus': report['verified_skus'],
+                          'telegram_queued_messages': report['queued_messages'],
                           'telegram_pending_messages': len(pending),
                           'device_delivery_confirmed': False}), flush=True)
 
