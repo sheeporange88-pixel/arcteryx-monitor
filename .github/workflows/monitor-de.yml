@@ -2,8 +2,12 @@ name: Arc'teryx Germany Telegram Monitor
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/monitor-de.yml'
   schedule:
-    - cron: '*/10 5-22 * * *'
+    - cron: '3-53/10 5-22 * * *'
 
 permissions:
   contents: read
