@@ -1,0 +1,86 @@
+name: Seven SKU Prices - Separate Telegram Messages
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/10 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/focused-skus.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arcteryx-focused-skus
+  cancel-in-progress: false
+
+jobs:
+  focused-prices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test price comparison and message separation
+        run: python -m unittest test_monitor_de.py test_monitor_focused.py
+      - name: Restore focused SKU state and receipts
+        id: focused-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data-focused
+          key: arcteryx-focused-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            arcteryx-focused-v1-
+      - name: Bootstrap existing Telegram recipient on first run
+        if: steps.focused-cache.outputs.cache-matched-key == ''
+        uses: actions/cache/restore@v4
+        with:
+          path: data-de
+          key: focused-recipient-bootstrap-${{ github.run_id }}
+          restore-keys: |
+            arcteryx-de-v1-
+      - name: Reuse verified recipient without exposing chat data
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+          source = Path('data-de/telegram-recipient.json')
+          target = Path('data-focused/telegram-recipient.json')
+          if not target.exists() and source.exists():
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(source, target)
+          PY
+      - name: Verify Telegram recipient
+        run: python monitor_de.py --data-dir data-focused --telegram-configure
+      - name: Read seven SKU detail prices and send seven separate messages
+        run: python monitor_focused.py --notify
+      - name: Save focused baselines and delivery receipts
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data-focused
+          key: arcteryx-focused-v1-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Attach focused price evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: focused-sku-prices-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: ignore
+          path: |
+            data-focused/latest-focused-run.json
+            data-focused/latest-focused-prices.csv
+            data-focused/latest-focused-report.txt
+      - name: Add price report to run summary
+        if: always()
+        run: |
+          if [ -f data-focused/latest-focused-report.txt ]; then
+            cat data-focused/latest-focused-report.txt >> "$GITHUB_STEP_SUMMARY"
+          fi

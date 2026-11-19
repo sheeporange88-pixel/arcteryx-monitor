@@ -104,6 +104,7 @@ def detail(base, item):
     if p['id'] != item['id'] or p['currencyCode'] != 'EUR':
         raise ValueError('Product ID or EUR currency mismatch')
     colors = {str(c['id']): c['label'] for c in p['colourOptions']}
+    sizes = {str(s['id']): s.get('label') for s in p.get('sizeOptions', []) if isinstance(s, dict) and s.get('id') is not None}
     variants, color_prices = {}, {}
     for v in p['variants']:
         regular, current = v.get('price'), v.get('discountPrice')
@@ -118,6 +119,7 @@ def detail(base, item):
         record = {'product_id': p['id'], 'name': p['marketingName'], 'url': url,
                   'color_id': color_id, 'color': colors[color_id], 'variant_id': v['id'],
                   'size_id': str(v.get('sizeId', '')), 'currency': 'EUR',
+                  'size': sizes.get(str(v.get('sizeId', ''))),
                   'price_source': 'sku_detail_variant',
                   'list_price': regular, 'current_price': current,
                   'discount_percent': round((regular-current)/regular*100, 2),
@@ -325,7 +327,7 @@ def telegram_discover():
                      ensure_ascii=False))
 
 
-def send_pending(data_dir):
+def send_pending(data_dir, min_interval=0):
     outbox = data_dir / 'outbox'
     files = sorted(outbox.glob('*.json')) if outbox.exists() else []
     if not files:
@@ -333,17 +335,21 @@ def send_pending(data_dir):
     chat_id = recipient(data_dir)
     if not os.environ.get('TELEGRAM_BOT_TOKEN') or not chat_id:
         raise RuntimeError('Telegram credentials not configured; reports remain in outbox')
+    last_sent = None
     for file in files:
         record = json.loads(file.read_text())
         if record['status'] == 'sent':
             continue
         # Save each acknowledged chunk to avoid replaying already sent chunks.
         for index in range(record.get('sent_chunks', 0), len(record['chunks'])):
+            if last_sent is not None and min_interval > 0:
+                time.sleep(max(0, min_interval - (time.monotonic() - last_sent)))
             result = telegram_call('sendMessage', {'chat_id': chat_id,
                                    'text': record['chunks'][index], 'disable_web_page_preview': True})
             record.setdefault('message_ids', []).append(result['message_id'])
             record['sent_chunks'] = index + 1
             atomic(file, record)
+            last_sent = time.monotonic()
         record.update(status='sent', api_accepted_at=now(), device_delivery_confirmed=False)
         atomic(file, record)
 

@@ -55,3 +55,17 @@ python monitor_de.py
 
 本地只生成报告；加 --notify 才发送。凭据来自运行环境，自动识别收件人时需要先执行
 `python monitor_de.py --telegram-configure`。不要同时运行两个写入同一目录的实例。
+
+## 七款独立 SKU 价格通知
+
+`focused_skus.json` 精确记录用户指定的7个商品ID及规范链接（3款女士、4款男士）。
+`.github/workflows/focused-skus.yml` 每10分钟独立运行，不依赖男士总览页是否更新，
+也不等待全站抓取任务完成。每轮对7个SKU详情页的全部颜色尺码价格逐项读取。
+每款单独发一条Telegram消息，只列原价、当前详情价、较上次变化及核实时间。
+颜色、尺码存在价格差异时明确分组，不把最低价当作所有颜色尺码的价格。
+读取失败时单独报告该款读取失败，标注上次核实价格，不冒充实时价格。
+
+独立基准、发送回执放在data-focused缓存；首次复用既有机器人私聊接收者。
+发送间隔至少1.1秒，7款各一条，不合并为总览消息；API接收不等于设备推送送达。
+每轮Actions的Artifacts包含focused-sku-prices报表，提供JSON、CSV及文字记录。
+原全站任务与这7款任务分别调度；如需停止其一，在Actions中禁用对应workflow。
